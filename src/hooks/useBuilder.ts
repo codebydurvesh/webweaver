@@ -9,21 +9,14 @@ export type BuilderStatus = "initializing" | "streaming" | "ready" | "error";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
-/**
- * Drives the whole build flow:
- *   1. POST /api/template  → pick react/node scaffold, seed the file tree
- *   2. POST /api/chat      → stream the model's artifact, parsing it live into
- *                            steps + files + streaming code
- *   3. sendRefinement()    → follow-up turns that refine the same project
- */
 export function useBuilder(prompt: string) {
   const [steps, setSteps] = useState<Step[]>([]);
   const [files, setFiles] = useState<FileNode[]>([]);
   const [selectedPath, setSelectedPath] = useState<string>();
   const [status, setStatus] = useState<BuilderStatus>("initializing");
   const [error, setError] = useState<string | null>(null);
+  const [generation, setGeneration] = useState(0);
 
-  // Persistent state that must survive re-renders without triggering them.
   const filesRef = useRef<Map<string, string>>(new Map());
   const committedStepsRef = useRef<Step[]>([]);
   const messagesRef = useRef<LlmMessage[]>([]);
@@ -31,7 +24,6 @@ export function useBuilder(prompt: string) {
   const didInitRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
 
-  // ---- Step derivation -----------------------------------------------------
 
   function buildSteps(
     artifact: ParsedArtifact,
@@ -78,7 +70,6 @@ export function useBuilder(prompt: string) {
     return out;
   }
 
-  /** Apply the latest accumulated response text to files + steps + selection. */
   function applyResponse(
     raw: string,
     idBase: number,
@@ -102,7 +93,6 @@ export function useBuilder(prompt: string) {
     }
   }
 
-  // ---- Network -------------------------------------------------------------
 
   async function streamChat() {
     setStatus("streaming");
@@ -139,8 +129,6 @@ export function useBuilder(prompt: string) {
     raw += decoder.decode();
     applyResponse(raw, idBase, existingPaths);
 
-    // Commit this turn: freeze its steps as completed and record the reply so
-    // follow-up refinements keep full conversation context.
     const finalSteps = buildSteps(parseArtifact(raw), idBase, existingPaths).map(
       (s) => ({ ...s, status: "completed" as const })
     );
@@ -151,6 +139,7 @@ export function useBuilder(prompt: string) {
       { role: "assistant", content: raw },
     ];
     setStatus("ready");
+    setGeneration((g) => g + 1);
   }
 
   async function initialize() {
@@ -164,7 +153,6 @@ export function useBuilder(prompt: string) {
       setSteps([]);
       setSelectedPath(undefined);
 
-      // 1. Template → scaffold files
       const tplRes = await fetch("/api/template", {
         method: "POST",
         headers: JSON_HEADERS,
@@ -209,7 +197,6 @@ export function useBuilder(prompt: string) {
       setSteps([...committedStepsRef.current]);
       setSelectedPath(defaultPath);
 
-      // 2. Build the conversation and stream the generation
       const prompts: string[] = tpl.prompts ?? [];
       messagesRef.current = [
         ...prompts.map((content) => ({ role: "user" as const, content })),
@@ -227,7 +214,6 @@ export function useBuilder(prompt: string) {
     setStatus("error");
   }
 
-  // ---- Public actions ------------------------------------------------------
 
   async function sendRefinement(text: string) {
     const trimmed = text.trim();
@@ -248,14 +234,10 @@ export function useBuilder(prompt: string) {
     setSelectedPath(path);
   }
 
-  // Kick off once. No cleanup-abort: under React StrictMode's dev
-  // mount/unmount/mount the guard keeps this to a single (paid) generation,
-  // and React 18 safely ignores state updates after unmount.
   useEffect(() => {
     if (didInitRef.current) return;
     didInitRef.current = true;
     void initialize();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const selectedFile = findNode(files, selectedPath);
@@ -267,6 +249,7 @@ export function useBuilder(prompt: string) {
     selectedPath,
     status,
     error,
+    generation,
     isBusy: status === "initializing" || status === "streaming",
     selectFile,
     sendRefinement,

@@ -10,62 +10,56 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 
-/** Width of each drag handle, in pixels (matches the `w-1.5` class below). */
 const HANDLE_PX = 6;
-/** Percentage step when resizing with the arrow keys. */
 const KEY_STEP = 2;
+
+type Direction = "horizontal" | "vertical";
 
 interface ResizablePanelsProps {
   children: React.ReactNode;
-  /** Initial panel sizes as percentages (should sum to 100). */
   initialSizes: number[];
-  /** Per-panel minimum sizes as percentages. */
   minSizes?: number[];
+  direction?: Direction;
   className?: string;
 }
 
-/**
- * Horizontal split layout with draggable dividers between panels.
- *
- * Sizes are kept as percentages summing to 100 and applied via `flex-grow`
- * (with `flex-basis: 0`) so the fixed-width handles don't throw the math off.
- * Dragging a divider trades width between its two neighbours, clamped to their
- * minimum sizes. Supports pointer drag, keyboard arrows, and double-click reset.
- */
 export default function ResizablePanels({
   children,
   initialSizes,
   minSizes,
+  direction = "horizontal",
   className = "",
 }: ResizablePanelsProps) {
   const items = Children.toArray(children);
   const mins = minSizes ?? items.map(() => 10);
+  const isH = direction === "horizontal";
 
   const [sizes, setSizes] = useState<number[]>(initialSizes);
   const [dragging, setDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ index: number; startX: number; startSizes: number[] } | null>(
-    null
-  );
+  const dragRef = useRef<{
+    index: number;
+    start: number;
+    startSizes: number[];
+  } | null>(null);
 
-  /** Container width minus the handles — the space the panels actually share. */
-  const availableWidth = useCallback(() => {
+  const availableSize = useCallback(() => {
     const el = containerRef.current;
     if (!el) return 0;
-    return el.clientWidth - (items.length - 1) * HANDLE_PX;
-  }, [items.length]);
+    const full = isH ? el.clientWidth : el.clientHeight;
+    return full - (items.length - 1) * HANDLE_PX;
+  }, [isH, items.length]);
 
-  /** Set the boundary `index` (between panel index and index+1) to a new split. */
   const applyBoundary = useCallback(
-    (index: number, desiredLeft: number, base: number[]) => {
+    (index: number, desiredFirst: number, base: number[]) => {
       const pairTotal = base[index] + base[index + 1];
-      const left = Math.max(
+      const first = Math.max(
         mins[index],
-        Math.min(desiredLeft, pairTotal - mins[index + 1])
+        Math.min(desiredFirst, pairTotal - mins[index + 1])
       );
       const next = [...base];
-      next[index] = left;
-      next[index + 1] = pairTotal - left;
+      next[index] = first;
+      next[index + 1] = pairTotal - first;
       setSizes(next);
     },
     [mins]
@@ -77,16 +71,21 @@ export default function ResizablePanels({
   ) => {
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
-    dragRef.current = { index, startX: e.clientX, startSizes: [...sizes] };
+    dragRef.current = {
+      index,
+      start: isH ? e.clientX : e.clientY,
+      startSizes: [...sizes],
+    };
     setDragging(true);
   };
 
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
     if (!drag) return;
-    const avail = availableWidth();
+    const avail = availableSize();
     if (avail <= 0) return;
-    const deltaPct = ((e.clientX - drag.startX) / avail) * 100;
+    const pos = isH ? e.clientX : e.clientY;
+    const deltaPct = ((pos - drag.start) / avail) * 100;
     applyBoundary(drag.index, drag.startSizes[drag.index] + deltaPct, drag.startSizes);
   };
 
@@ -102,10 +101,12 @@ export default function ResizablePanels({
   };
 
   const onKeyDown = (index: number, e: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "ArrowLeft") {
+    const decrease = isH ? "ArrowLeft" : "ArrowUp";
+    const increase = isH ? "ArrowRight" : "ArrowDown";
+    if (e.key === decrease) {
       e.preventDefault();
       applyBoundary(index, sizes[index] - KEY_STEP, sizes);
-    } else if (e.key === "ArrowRight") {
+    } else if (e.key === increase) {
       e.preventDefault();
       applyBoundary(index, sizes[index] + KEY_STEP, sizes);
     }
@@ -114,17 +115,22 @@ export default function ResizablePanels({
   return (
     <div
       ref={containerRef}
-      className={`flex ${dragging ? "select-none" : ""} ${className}`}
+      className={`flex ${isH ? "flex-row" : "flex-col"} ${
+        dragging ? "select-none" : ""
+      } ${className}`}
     >
-      {/* While dragging, an overlay keeps the col-resize cursor everywhere
-          (incl. over Monaco). Pointer capture on the handle means this overlay
-          never steals the drag events. */}
-      {dragging && <div className="fixed inset-0 z-50 cursor-col-resize" />}
+      {dragging && (
+        <div
+          className={`fixed inset-0 z-50 ${
+            isH ? "cursor-col-resize" : "cursor-row-resize"
+          }`}
+        />
+      )}
 
       {items.map((child, i) => (
         <Fragment key={i}>
           <div
-            className="min-w-0 overflow-hidden"
+            className={isH ? "min-w-0 overflow-hidden" : "min-h-0 overflow-hidden"}
             style={{ flexGrow: sizes[i], flexShrink: 1, flexBasis: 0 }}
           >
             {child}
@@ -133,7 +139,7 @@ export default function ResizablePanels({
           {i < items.length - 1 && (
             <div
               role="separator"
-              aria-orientation="vertical"
+              aria-orientation={isH ? "vertical" : "horizontal"}
               aria-label="Resize panels"
               tabIndex={0}
               onPointerDown={(e) => onPointerDown(i, e)}
@@ -142,10 +148,18 @@ export default function ResizablePanels({
               onPointerCancel={endDrag}
               onDoubleClick={() => setSizes(initialSizes)}
               onKeyDown={(e) => onKeyDown(i, e)}
-              className="group relative w-1.5 shrink-0 cursor-col-resize touch-none select-none outline-none"
+              className={`group relative shrink-0 touch-none select-none outline-none ${
+                isH ? "w-1.5 cursor-col-resize" : "h-1.5 cursor-row-resize"
+              }`}
               title="Drag to resize (double-click to reset)"
             >
-              <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-zinc-800 transition-colors group-hover:w-0.5 group-hover:bg-indigo-500 group-focus-visible:bg-indigo-500 group-active:w-0.5 group-active:bg-indigo-500" />
+              <div
+                className={`pointer-events-none absolute bg-zinc-800 transition-colors group-hover:bg-indigo-500 group-focus-visible:bg-indigo-500 group-active:bg-indigo-500 ${
+                  isH
+                    ? "inset-y-0 left-1/2 w-px -translate-x-1/2 group-hover:w-0.5 group-active:w-0.5"
+                    : "inset-x-0 top-1/2 h-px -translate-y-1/2 group-hover:h-0.5 group-active:h-0.5"
+                }`}
+              />
             </div>
           )}
         </Fragment>

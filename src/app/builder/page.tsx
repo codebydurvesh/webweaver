@@ -1,17 +1,25 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, Code2, Eye, Loader2, Sparkles } from "lucide-react";
+import {
+  AlertTriangle,
+  Code2,
+  Eye,
+  Loader2,
+  Sparkles,
+  Terminal as TerminalIcon,
+} from "lucide-react";
 import StepsList from "@/components/StepsList";
 import FileExplorer from "@/components/FileExplorer";
 import CodeEditor from "@/components/CodeEditor";
 import PreviewPanel from "@/components/PreviewPanel";
 import RefineBox from "@/components/RefineBox";
 import ResizablePanels from "@/components/ResizablePanels";
+import Terminal from "@/components/Terminal";
 import { useBuilder } from "@/hooks/useBuilder";
-import { countFiles } from "@/lib/fileTree";
+import { useWebContainer, type WcStatus } from "@/hooks/useWebContainer";
 
 type Tab = "code" | "preview";
 
@@ -32,14 +40,31 @@ function BuilderContent() {
     selectedPath,
     status,
     error,
+    generation,
     isBusy,
     selectFile,
     sendRefinement,
     retry,
   } = useBuilder(prompt);
 
+  const {
+    status: wcStatus,
+    previewUrl,
+    error: wcError,
+    attachTerminal,
+  } = useWebContainer({ files, generation, enabled: true });
+
   const [tab, setTab] = useState<Tab>("code");
   const streaming = status === "streaming";
+
+  // Jump to the preview the first time the dev server is ready.
+  const switchedRef = useRef(false);
+  useEffect(() => {
+    if (previewUrl && !switchedRef.current) {
+      switchedRef.current = true;
+      setTab("preview");
+    }
+  }, [previewUrl]);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-zinc-950">
@@ -101,41 +126,87 @@ function BuilderContent() {
           />
         </section>
 
-        {/* Code / Preview */}
-        <section className="flex h-full flex-col bg-zinc-900">
-          <div className="flex shrink-0 items-center gap-1 border-b border-zinc-800 bg-zinc-950 px-2">
-            <TabButton
-              active={tab === "code"}
-              onClick={() => setTab("code")}
-              icon={<Code2 className="h-4 w-4" />}
-              label="Code"
-            />
-            <TabButton
-              active={tab === "preview"}
-              onClick={() => setTab("preview")}
-              icon={<Eye className="h-4 w-4" />}
-              label="Preview"
-            />
-            {tab === "code" && selectedFile && (
-              <span className="ml-auto truncate pr-2 font-mono text-xs text-zinc-500">
-                {selectedFile.path}
-              </span>
-            )}
+        {/* Code / Preview on top, Terminal below (vertical split) */}
+        <ResizablePanels
+          direction="vertical"
+          className="h-full bg-zinc-900"
+          initialSizes={[68, 32]}
+          minSizes={[30, 12]}
+        >
+          {/* Code / Preview */}
+          <div className="flex h-full flex-col bg-zinc-900">
+            <div className="flex shrink-0 items-center gap-1 border-b border-zinc-800 bg-zinc-950 px-2">
+              <TabButton
+                active={tab === "code"}
+                onClick={() => setTab("code")}
+                icon={<Code2 className="h-4 w-4" />}
+                label="Code"
+              />
+              <TabButton
+                active={tab === "preview"}
+                onClick={() => setTab("preview")}
+                icon={<Eye className="h-4 w-4" />}
+                label="Preview"
+              />
+              {tab === "code" && selectedFile && (
+                <span className="ml-auto truncate pr-2 font-mono text-xs text-zinc-500">
+                  {selectedFile.path}
+                </span>
+              )}
+            </div>
+
+            <div className="min-h-0 flex-1">
+              {tab === "code" ? (
+                <CodeEditor
+                  path={selectedFile?.path}
+                  content={selectedFile?.content}
+                />
+              ) : (
+                <PreviewPanel
+                  url={previewUrl}
+                  status={wcStatus}
+                  error={wcError}
+                />
+              )}
+            </div>
           </div>
 
-          <div className="min-h-0 flex-1">
-            {tab === "code" ? (
-              <CodeEditor
-                path={selectedFile?.path}
-                content={selectedFile?.content}
-              />
-            ) : (
-              <PreviewPanel fileCount={countFiles(files)} />
-            )}
+          {/* Terminal */}
+          <div className="flex h-full flex-col border-t border-zinc-800 bg-[#09090b]">
+            <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 px-3 py-1.5">
+              <TerminalIcon className="h-3.5 w-3.5 text-zinc-500" />
+              <span className="text-xs font-medium text-zinc-400">Terminal</span>
+              <WcStatusBadge status={wcStatus} />
+            </div>
+            <div className="min-h-0 flex-1 p-1.5">
+              <Terminal onReady={attachTerminal} />
+            </div>
           </div>
-        </section>
+        </ResizablePanels>
       </ResizablePanels>
     </div>
+  );
+}
+
+function WcStatusBadge({ status }: { status: WcStatus }) {
+  const map: Record<WcStatus, { label: string; dot: string; text: string }> = {
+    idle: { label: "idle", dot: "bg-zinc-600", text: "text-zinc-500" },
+    booting: { label: "booting", dot: "bg-amber-400", text: "text-amber-400" },
+    installing: {
+      label: "installing",
+      dot: "bg-amber-400",
+      text: "text-amber-400",
+    },
+    starting: { label: "starting", dot: "bg-amber-400", text: "text-amber-400" },
+    ready: { label: "ready", dot: "bg-emerald-500", text: "text-emerald-500" },
+    error: { label: "error", dot: "bg-red-500", text: "text-red-400" },
+  };
+  const s = map[status];
+  return (
+    <span className={`ml-auto inline-flex items-center gap-1.5 text-[11px] ${s.text}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
+      {s.label}
+    </span>
   );
 }
 
