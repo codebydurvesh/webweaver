@@ -1,41 +1,49 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { Code2, Eye, Loader2, Sparkles } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { AlertTriangle, Code2, Eye, Loader2, Sparkles } from "lucide-react";
 import StepsList from "@/components/StepsList";
 import FileExplorer from "@/components/FileExplorer";
 import CodeEditor from "@/components/CodeEditor";
-import PreviewFrame from "@/components/PreviewFrame";
-import { mockFileTree, mockSteps, previewHtml } from "@/lib/mockData";
-import type { FileNode } from "@/types";
+import PreviewPanel from "@/components/PreviewPanel";
+import RefineBox from "@/components/RefineBox";
+import ResizablePanels from "@/components/ResizablePanels";
+import { useBuilder } from "@/hooks/useBuilder";
+import { countFiles } from "@/lib/fileTree";
 
 type Tab = "code" | "preview";
 
-function findFirstFile(nodes: FileNode[]): FileNode | undefined {
-  for (const node of nodes) {
-    if (node.type === "file") return node;
-    if (node.children) {
-      const found = findFirstFile(node.children);
-      if (found) return found;
-    }
-  }
-  return undefined;
-}
-
 function BuilderContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const prompt = searchParams.get("prompt") ?? "Your website";
+  const prompt = searchParams.get("prompt") ?? "";
 
-  const defaultFile = useMemo(() => findFirstFile(mockFileTree), []);
-  const [selectedFile, setSelectedFile] = useState<FileNode | undefined>(
-    defaultFile
-  );
+  // No prompt → nothing to build; send the user back to the landing page.
+  useEffect(() => {
+    if (!prompt) router.replace("/");
+  }, [prompt, router]);
+
+  const {
+    steps,
+    files,
+    selectedFile,
+    selectedPath,
+    status,
+    error,
+    isBusy,
+    selectFile,
+    sendRefinement,
+    retry,
+  } = useBuilder(prompt);
+
   const [tab, setTab] = useState<Tab>("code");
+  const streaming = status === "streaming";
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-zinc-950">
+      {/* Header */}
       <header className="flex shrink-0 items-center gap-3 border-b border-zinc-800 px-4 py-3">
         <Link
           href="/"
@@ -46,25 +54,55 @@ function BuilderContent() {
         </Link>
         <span className="text-zinc-700">/</span>
         <p className="truncate text-sm text-zinc-400" title={prompt}>
-          {prompt}
+          {prompt || "Untitled"}
         </p>
+        {status === "initializing" && (
+          <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-zinc-500">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Setting up…
+          </span>
+        )}
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        <section className="w-1/4 min-w-0 border-r border-zinc-800 bg-zinc-950">
-          <StepsList steps={mockSteps} />
+      {/* Error banner */}
+      {error && (
+        <div className="flex items-center gap-3 border-b border-red-900/50 bg-red-950/40 px-4 py-2 text-sm text-red-300">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span className="flex-1 truncate">{error}</span>
+          <button
+            onClick={() => retry()}
+            className="rounded-md border border-red-800 px-2.5 py-1 text-xs font-medium text-red-200 hover:bg-red-900/40"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Resizable 25% / 25% / 50% layout — drag the dividers to resize */}
+      <ResizablePanels
+        className="min-h-0 flex-1"
+        initialSizes={[25, 25, 50]}
+        minSizes={[15, 12, 30]}
+      >
+        {/* Steps (with refine box pinned to the bottom) */}
+        <section className="flex h-full flex-col bg-zinc-950">
+          <div className="min-h-0 flex-1">
+            <StepsList steps={steps} streaming={streaming} />
+          </div>
+          <RefineBox onSend={sendRefinement} disabled={isBusy} />
         </section>
 
-        <section className="w-1/4 min-w-0 border-r border-zinc-800 bg-zinc-950">
+        {/* File explorer */}
+        <section className="h-full bg-zinc-950">
           <FileExplorer
-            tree={mockFileTree}
-            selectedPath={selectedFile?.path}
-            onSelect={setSelectedFile}
+            tree={files}
+            selectedPath={selectedPath}
+            onSelect={(node) => selectFile(node.path)}
           />
         </section>
 
-        <section className="flex w-1/2 min-w-0 flex-col bg-zinc-900">
-          {/* Tabs */}
+        {/* Code / Preview */}
+        <section className="flex h-full flex-col bg-zinc-900">
           <div className="flex shrink-0 items-center gap-1 border-b border-zinc-800 bg-zinc-950 px-2">
             <TabButton
               active={tab === "code"}
@@ -78,8 +116,8 @@ function BuilderContent() {
               icon={<Eye className="h-4 w-4" />}
               label="Preview"
             />
-            {selectedFile && tab === "code" && (
-              <span className="ml-auto truncate pr-2 text-xs text-zinc-500">
+            {tab === "code" && selectedFile && (
+              <span className="ml-auto truncate pr-2 font-mono text-xs text-zinc-500">
                 {selectedFile.path}
               </span>
             )}
@@ -92,11 +130,11 @@ function BuilderContent() {
                 content={selectedFile?.content}
               />
             ) : (
-              <PreviewFrame html={previewHtml} />
+              <PreviewPanel fileCount={countFiles(files)} />
             )}
           </div>
         </section>
-      </div>
+      </ResizablePanels>
     </div>
   );
 }
