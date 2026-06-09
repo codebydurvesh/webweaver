@@ -1,6 +1,8 @@
-# Webweaver
+# Webweaver: https://webweaver-code.vercel.app/
 
 > **For educational purposes only.** This is a personal learning project — a clone built to understand how AI-powered website builders (like [bolt.new](https://bolt.new)) work under the hood. It is **not** a product and is **not** intended for commercial use.
+
+Check out the [Live URL](https://webweaver-code.vercel.app/).
 
 Describe a website in plain English and watch it get built in front of you — file by file, with the code, a live preview, and a real terminal, all running in the browser.
 
