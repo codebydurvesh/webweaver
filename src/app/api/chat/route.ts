@@ -1,6 +1,7 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import Groq from "groq-sdk";
 import { getSystemPrompt } from "@/lib/prompts";
+import { toApiError } from "@/lib/apiError";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -12,17 +13,23 @@ const groq = new Groq({
 export async function POST(req: NextRequest) {
   const { messages } = await req.json();
 
-  const completion = await groq.chat.completions.create({
-    model: "llama-3.3-70b-versatile",
-    stream: true,
-    messages: [
-      {
-        role: "system",
-        content: getSystemPrompt(),
-      },
-      ...messages,
-    ],
-  });
+  let completion;
+  try {
+    completion = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      stream: true,
+      messages: [
+        {
+          role: "system",
+          content: getSystemPrompt(),
+        },
+        ...messages,
+      ],
+    });
+  } catch (err) {
+    const { status, message } = toApiError(err);
+    return NextResponse.json({ error: message }, { status });
+  }
 
   const encoder = new TextEncoder();
 

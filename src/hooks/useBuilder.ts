@@ -114,7 +114,8 @@ export function useBuilder(prompt: string) {
     });
 
     if (!res.ok || !res.body) {
-      throw new Error(`Chat request failed (${res.status})`);
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.error ?? `Chat request failed (${res.status})`);
     }
 
     const reader = res.body.getReader();
@@ -161,9 +162,7 @@ export function useBuilder(prompt: string) {
       if (!tplRes.ok) {
         const data = await tplRes.json().catch(() => null);
         throw new Error(
-          data?.error
-            ? `Could not start project: ${data.error}`
-            : `Template request failed (${tplRes.status})`
+          data?.error ?? `Template request failed (${tplRes.status})`
         );
       }
       const tpl = await tplRes.json();

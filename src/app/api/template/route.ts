@@ -3,6 +3,7 @@ import Groq from "groq-sdk";
 import { BASE_PROMPT } from "@/lib/prompts";
 import { basePrompt as nodeBasePrompt } from "@/lib/defaults/node";
 import { basePrompt as reactBasePrompt } from "@/lib/defaults/react";
+import { toApiError } from "@/lib/apiError";
 
 export const runtime = "nodejs";
 
@@ -13,20 +14,26 @@ const groq = new Groq({
 export async function POST(req: NextRequest) {
   const { prompt } = await req.json();
 
-  const response = await groq.chat.completions.create({
-    model: "llama-3.3-70b-versatile",
-    messages: [
-      {
-        role: "system",
-        content:
-          "IMPORATANT: Only return word 'react' or 'node' based on the user prompt. If the user prompt is related to frontend development, return 'react'. If the user prompt is related to backend development, return 'node'. Do not return anything else.",
-      },
-      {
-        role: "user",
-        content: prompt,
-      },
-    ],
-  });
+  let response;
+  try {
+    response = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        {
+          role: "system",
+          content:
+            "IMPORATANT: Only return word 'react' or 'node' based on the user prompt. If the user prompt is related to frontend development, return 'react'. If the user prompt is related to backend development, return 'node'. Do not return anything else.",
+        },
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+    });
+  } catch (err) {
+    const { status, message } = toApiError(err);
+    return NextResponse.json({ error: message }, { status });
+  }
 
   const answer = response.choices[0]?.message?.content?.toLowerCase(); // react or node
 
