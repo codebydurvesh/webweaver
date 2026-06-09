@@ -1,6 +1,7 @@
 > **For educational purposes only.** This is a personal learning project — a clone built to understand how AI-powered website builders (like [bolt.new](https://bolt.new)) work under the hood. It is **not** a product and is **not** intended for commercial use.
 
 Check out the Live URL of [Webweaver](https://webweaver-code.vercel.app/).
+Linkedin Post ...[Link](https://www.linkedin.com/posts/codebydurvesh_ai-webdevelopment-typescript-activity-7469994158498369537-aUgI?utm_source=share&utm_medium=member_desktop&rcm=ACoAAEe1LwUBkliQRFXg63L9cIUE9Fi6JofaW-Y)
 
 Describe a website in plain English and watch it get built in front of you — file by file, with the code, a live preview, and a real terminal, all running in the browser.
 
